@@ -1,0 +1,11 @@
+node_modules/
+dist/
+tmp/
+.nx/
+.turbo/
+coverage/
+*.log
+.idea/
+.vscode/
+.DS_Store
+rkuehl-c46ea64d-cf6d-4077-b339-d024fbca5a20/
