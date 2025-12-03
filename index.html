@@ -1,98 +1,132 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Portfolio Tree</title>
-    <style>
-      :root {
-        color-scheme: light dark;
-        font-family: "Courier New", Courier, monospace;
-      }
+<head>
+  <meta charset="utf-8">
+  <title>Audio Sentiment Bot</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="./assets/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="site-header">
+      <div class="site-header__inner">
+        <div class="brand">
+          <h1 class="brand__title">Audio Sentiment Bot</h1>
+          <p class="brand__subtitle">
+            Upload a short audio clip to transcribe speech with Google Web Speech and score the sentiment instantly.
+          </p>
+        </div>
+      </div>
+    </header>
 
-      body {
-        margin: 0;
-        padding: 2rem;
-        background: #f7f7f7;
-        color: #111;
-      }
+    <main class="main-content">
+      <div class="container">
+        <div class="layout-grid">
+          <section class="panel panel--accent" aria-labelledby="upload-heading">
+            <div>
+              <h2 class="panel__title" id="upload-heading">Analyze a clip</h2>
+              <p class="panel__copy">
+                Choose an audio file up to about one minute and pick a language. Results stay on this device.
+              </p>
+            </div>
 
-      body.dark {
-        background: #1b1b1b;
-        color: #f5f5f5;
-      }
+            <form class="form-grid" data-form enctype="multipart/form-data" novalidate>
+              <div class="field-group">
+                <label class="field-label" for="audio-input">Audio file</label>
+                <input
+                  class="input-control"
+                  id="audio-input"
+                  name="audio"
+                  type="file"
+                  accept="audio/*"
+                  required
+                  data-input="audio"
+                >
+                <p class="field-hint">Supports WAV, MP3, M4A, and other common formats.</p>
+              </div>
 
-      h1 {
-        font-size: 1.5rem;
-        margin-bottom: 1rem;
-      }
+              <div class="field-group">
+                <label class="field-label" for="language-select">Transcription language</label>
+                <select class="input-control" id="language-select" name="language" data-input="language">
+                  <option value="en-US" selected>English (United States)</option>
+                  <option value="en-GB">English (United Kingdom)</option>
+                  <option value="es-ES">Spanish (Spain)</option>
+                  <option value="fr-FR">French (France)</option>
+                  <option value="de-DE">German</option>
+                </select>
+              </div>
 
-      .tree {
-        list-style: none;
-        padding-left: 1rem;
-        border-left: 2px solid currentColor;
-      }
+              <div class="field-group">
+                <label class="field-label" for="api-base-input">API endpoint</label>
+                <div class="endpoint-controls">
+                  <input
+                    class="input-control endpoint-input"
+                    id="api-base-input"
+                    type="url"
+                    name="api-base"
+                    placeholder="http://localhost:6142"
+                    data-input="api-base"
+                    autocomplete="url"
+                  >
+                  <button class="button button--ghost" type="button" data-action="save-endpoint">Save</button>
+                  <button class="button button--ghost" type="button" data-action="reset-endpoint">Reset</button>
+                </div>
+                <p class="field-hint">Defaults to your local Flask server. Update when using a hosted API.</p>
+                <p class="endpoint-banner" data-endpoint-display></p>
+              </div>
 
-      .tree li {
-        position: relative;
-        margin: 0.4rem 0;
-        padding-left: 1rem;
-      }
+              <button class="button" type="submit" data-submit>Analyze audio</button>
+            </form>
 
-      .tree li::before {
-        content: "";
-        position: absolute;
-        top: 0.8rem;
-        left: 0;
-        width: 0.8rem;
-        border-top: 2px solid currentColor;
-      }
+            <p class="status-banner" data-status role="status" aria-live="polite">Ready.</p>
 
-      a {
-        color: inherit;
-        text-decoration: none;
-      }
+            <div class="waveform-card" data-waveform-container hidden>
+              <div class="waveform-card__header">
+                <h3 class="waveform-card__title" id="waveform-heading">Waveform preview</h3>
+                <button class="button button--ghost" type="button" data-waveform-clear>
+                  Clear preview
+                </button>
+              </div>
+              <p class="waveform-card__copy">
+                Live visualization of your audio file. We never upload this preview.
+              </p>
+              <canvas
+                class="waveform-canvas"
+                data-waveform
+                role="img"
+                aria-labelledby="waveform-heading"
+              ></canvas>
+              <p class="waveform-meta" data-waveform-meta></p>
+            </div>
+            <p class="waveform-empty" data-waveform-empty>
+              Waveform preview appears after selecting an audio file.
+            </p>
+          </section>
 
-      a:hover,
-      a:focus {
-        text-decoration: underline;
-      }
+          <section class="panel" aria-labelledby="history-heading">
+            <div class="history-header">
+              <h2 class="history-header__title" id="history-heading">Analysis history</h2>
+              <p class="history-header__copy">Each result lists the language, timestamp, and transcript.</p>
+            </div>
 
-      footer {
-        margin-top: 2rem;
-        font-size: 0.85rem;
-      }
-    </style>
-    <script>
-      (function toggleTheme() {
-        var prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
-        if (prefersDark) {
-          document.addEventListener("DOMContentLoaded", function () {
-            document.body.classList.add("dark");
-          });
-        }
-      })();
-    </script>
-  </head>
-  <body>
-    <h1>rosskuehl · Portfolio</h1>
-    <ul class="tree">
-      <li>
-        <span>./</span>
-        <ul class="tree">
-          <li>
-            <a href="./paint-app/">paint-app</a>
-            <span> · interactive painting playground</span>
-          </li>
-          <li>
-            <a href="./guitar-app/">guitar-app</a>
-            <span> · cross-platform guitar companion</span>
-          </li>
-        </ul>
-      </li>
-    </ul>
-    <footer>
-      <span>Last updated: <script>document.write(new Date().toISOString().split("T")[0]);</script></span>
+            <div class="history-list" data-results aria-live="polite"></div>
+            <p class="empty-state" data-empty-state>Run your first analysis to populate your history.</p>
+          </section>
+        </div>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="site-footer__inner">
+        Tip: Need live capture? Use the command line streamer or desktop overlay included in the core project.
+      </div>
     </footer>
-  </body>
+  </div>
+
+  <noscript>
+    <div class="noscript">JavaScript is required to upload audio clips and display results.</div>
+  </noscript>
+
+  <script src="./assets/app.js" defer></script>
+</body>
 </html>
