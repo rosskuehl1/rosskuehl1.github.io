@@ -1,35 +1,31 @@
 # GitHub Pages – Audio Sentiment Bot Frontend
 
 ## Purpose
-- Hosts the static web UI for the Audio Sentiment Bot on GitHub Pages.
-- Mirrors the layout and behaviour of `audio_sentiment_bot/templates/index.html` and `static/app.js` but runs without Flask.
-- Keep this repo in parity with the backend project; the Audio Sentiment Bot experience is the top priority for every change.
+- Hosts the production version of the zero-backend Audio Sentiment Bot UI on GitHub Pages (`https://rosskuehl1.github.io`).
+- Mirrors `audio_sentiment_bot/docs/` exactly; treat that folder as the source of truth and keep the repos in sync.
+- Prioritize the plug-and-play guitar workflow: visitors should be able to connect an instrument, play immediately, and see helpful visuals and sentiment cues.
 
 ## Key Files
-- `index.html` – Static markup; includes language dropdown, API endpoint controls, and history panel.
-- `assets/app.js` – Handles uploads, waveform rendering via Web Audio API, endpoint persistence via `localStorage`, and history rendering. Posts to `<api-base>/analyze`.
-- `assets/styles.css` – Shared visual system with the Flask app; keep selectors consistent before copying updates downstream.
+- `index.html` – Static markup powering the entire experience (recording controls, instrument selector, live insight chips, trend sparkline, CI badge).
+- `assets/app.js` – Browser-only logic: Whisper transcription, DistilBERT sentiment, waveform rendering, instrument-mode tuning, live analysis queue, CI status fetch.
+- `assets/styles.css` – Design tokens and layout primitives shared with the main repo. Update colors/components here when rebranding the analyzer.
 
-## API Endpoint Handling
-- Default base: `http://localhost:6142` (matches local Flask dev server).
-- Users can override via the **API endpoint** input; value saved under `audio-sentiment-bot/api-base` in `localStorage`.
-- JS normalises the base and expands requests with `new URL("/analyze", apiBase)`; ensure new routes stick to the `/analyze` path unless you update both repos.
-- When running on GitHub Pages, the backend must send CORS headers that include the Pages domain.
-- Flask reads `AUDIO_SENTIMENT_BOT_CORS_ORIGIN`; remind backend owners to set it to the published Pages URL.
+## Workflow & Deployment
+1. Make changes in `audio_sentiment_bot/docs/` first.
+2. Copy `docs/index.html` → `index.html` and `docs/assets/*` → `assets/` in this repo.
+3. Keep IDs, `data-*` attributes, and selectors consistent; Playwright smoke tests rely on them.
+4. Preview locally with `npx serve .` (or any static server) to verify recording, live sentiment, waveform, and sparkline behaviors.
+5. Commit to `main`; GitHub Pages redeploys automatically.
 
-## Update Workflow
-1. Apply UI changes in `audio_sentiment_bot` first.
-2. Copy the updated markup and assets into this repo, keeping the endpoint controls intact.
-3. Adjust any Flask-specific templating (`{{ url_for(...) }}`) to use static paths.
-4. Test locally with `python -m http.server`, verify waveform preview renders, and confirm uploads reach your backend.
-5. Commit to `main`; Pages will redeploy automatically.
+## Live Analysis Notes
+- All processing stays in the browser via `@xenova/transformers`. Do not add backend calls.
+- Instrument mode disables AGC/noise suppression; voice mode re-enables them. Preserve this toggling when editing `startRecording`.
+- Keep `LIVE_ANALYSIS_*` constants and `queueLiveAnalysis` logic aligned with the main repo to avoid drift in latency.
 
-## Waveform Preview
-- The canvas preview uses `AudioContext` + `decodeAudioData`; keep helper functions (`renderWaveform`, `drawWaveform`, `clearWaveform`) synchronized with the backend repo.
-- Never upload decoded PCM data—the preview and metadata remain local to the browser.
-- Provide graceful fallbacks: call `clearWaveform` with explanatory copy when the Web Audio API is unavailable.
+## CI/CD
+- This repo should remain deployable at all times. Any change that breaks the static bundle blocks production.
+- When updating selectors or layout, confirm Playwright smoke tests in the main repo still pass (they exercise the shared UI).
 
-## Common Pitfalls
-- Forgetting to normalise API base URLs leads to double slashes; rely on `sanitizeBase` before storing.
-- Removing endpoint controls breaks hosted usage—only trim them if the backend origin is truly fixed.
-- Private browsing may block `localStorage`; the page still operates but reverts to the default endpoint every load.
+## Waveform & Trend UI
+- `drawWaveform`, `drawLiveWaveform`, `computeEnergyPercent`, and `addTrendPoint` must stay consistent with the source repo to avoid visual differences between preview and production.
+- Always clear the waveform and trend buffers when resetting inputs or stopping a recording to prevent stale visuals.

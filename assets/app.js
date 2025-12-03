@@ -30,6 +30,14 @@ const liveSentimentEl = document.querySelector('[data-live-sentiment]');
 const liveTranscriptEl = document.querySelector('[data-live-transcript]');
 const liveMeterNeedle = document.querySelector('[data-live-meter-needle]');
 
+const ciStatusEl = document.querySelector('[data-ci-status]');
+const instrumentModeSelect = document.querySelector('[data-instrument-mode]');
+const instrumentStatusEl = document.querySelector('[data-instrument-status]');
+const liveEnergyEl = document.querySelector('[data-live-energy]');
+const liveConfidenceEl = document.querySelector('[data-live-confidence]');
+const liveTrendLabelEl = document.querySelector('[data-live-trend-label]');
+const liveTrendCanvas = document.querySelector('[data-live-trend]');
+
 const state = {
   audioBuffer: null,
   audioFile: null,
@@ -48,6 +56,9 @@ const state = {
   recordingSampleRate: null,
   recordingSampleCount: 0,
   liveAnalysis: null,
+  instrumentMode: "voice",
+  trendHistory: [],
+  ciStatusFetched: false,
 };
 
 env.allowRemoteModels = true;
@@ -64,12 +75,62 @@ function setStatus(message, tone) {
   statusEl.dataset.state = tone || "ready";
 }
 
+function setCiStatus(message, tone) {
+  if (!ciStatusEl) {
+    return;
+  }
+  ciStatusEl.textContent = message;
+  ciStatusEl.dataset.state = tone || "unknown";
+}
+
+async function fetchCiStatus() {
+  if (state.ciStatusFetched || !ciStatusEl) {
+    return;
+  }
+  state.ciStatusFetched = true;
+  try {
+    const response = await fetch("https://api.github.com/repos/rosskuehl1/audio_sentiment_bot/actions/runs?per_page=1");
+    if (!response.ok) {
+      throw new Error(`CI status HTTP ${response.status}`);
+    }
+    const payload = await response.json();
+    const latest = Array.isArray(payload.workflow_runs) ? payload.workflow_runs[0] : null;
+    if (!latest) {
+      setCiStatus("No CI runs yet", "unknown");
+      return;
+    }
+    if (latest.conclusion === "success") {
+      setCiStatus("Passing · Pages synced", "passing");
+    } else if (latest.conclusion) {
+      setCiStatus(`Failing · ${latest.name || "workflow"}`, "failing");
+    } else {
+      setCiStatus("Running · awaiting status", "unknown");
+    }
+  } catch (error) {
+    console.warn("CI status fetch failed", error);
+    setCiStatus("CI status unavailable", "unknown");
+  }
+}
+
 function toggleLoading(isLoading) {
   if (submitButton) {
     submitButton.disabled = Boolean(isLoading);
   }
   if (form) {
     form.classList.toggle("is-uploading", Boolean(isLoading));
+  }
+}
+
+function setInstrumentMode(mode) {
+  const normalized = mode === "instrument" ? "instrument" : "voice";
+  state.instrumentMode = normalized;
+  if (instrumentModeSelect && instrumentModeSelect.value !== normalized) {
+    instrumentModeSelect.value = normalized;
+  }
+  if (instrumentStatusEl) {
+    instrumentStatusEl.textContent = normalized === "instrument"
+      ? "Instrument mode trims hum, boosts sustain, and keeps latency low for riffs."
+      : "Voice mode prioritizes clarity for speech and vocals.";
   }
 }
 
@@ -139,6 +200,22 @@ function resetLiveCard() {
     liveMeterNeedle.style.left = "50%";
     liveMeterNeedle.dataset.tone = "neutral";
   }
+  if (liveEnergyEl) {
+    liveEnergyEl.textContent = "Energy — 0%";
+  }
+  if (liveConfidenceEl) {
+    liveConfidenceEl.textContent = "Confidence — —";
+  }
+  if (liveTrendLabelEl) {
+    liveTrendLabelEl.textContent = "Trend — waiting";
+  }
+  if (liveTrendCanvas) {
+    const ctx = liveTrendCanvas.getContext("2d");
+    if (ctx) {
+      ctx.clearRect(0, 0, liveTrendCanvas.width, liveTrendCanvas.height);
+    }
+  }
+  state.trendHistory = [];
 }
 
 function showLiveCard() {
@@ -162,6 +239,9 @@ function updateLiveStreamUI(payload) {
   const sentiment = payload.sentiment || null;
   const tone = toneFromLabel(sentiment ? sentiment.label : null);
   const score = sentiment && typeof sentiment.score === "number" ? sentiment.score : null;
+  const confidence = payload.confidence;
+  const energyPercent = payload.energyPercent;
+  const trendDelta = payload.trendDelta;
 
   if (liveSentimentEl) {
     const label = sentiment && sentiment.label ? sentiment.label.toUpperCase() : "UNKNOWN";
@@ -171,6 +251,22 @@ function updateLiveStreamUI(payload) {
 
   if (liveTranscriptEl) {
     liveTranscriptEl.textContent = payload.transcript || defaultLiveTranscript;
+  }
+
+  if (liveEnergyEl && typeof energyPercent === "number") {
+    const clampedEnergy = Math.max(0, Math.min(100, Math.round(energyPercent)));
+    liveEnergyEl.textContent = `Energy — ${clampedEnergy}%`;
+  }
+
+  if (liveConfidenceEl && typeof confidence === "number") {
+    liveConfidenceEl.textContent = `Confidence — ${(confidence * 100).toFixed(0)}%`;
+  } else if (liveConfidenceEl) {
+    liveConfidenceEl.textContent = "Confidence — —";
+  }
+
+  if (liveTrendLabelEl && typeof trendDelta === "number") {
+    const label = trendDelta > 0 ? `Trend — rising ${(trendDelta * 100).toFixed(0)}%` : trendDelta < 0 ? `Trend — dipping ${(Math.abs(trendDelta) * 100).toFixed(0)}%` : "Trend — flat";
+    liveTrendLabelEl.textContent = label;
   }
 
   const gaugeValue = (() => {
@@ -187,6 +283,10 @@ function updateLiveStreamUI(payload) {
   })();
   updateLiveMeter(gaugeValue, tone);
 
+  if (typeof payload.trendValue === "number") {
+    addTrendPoint(payload.trendValue);
+  }
+
   const now = new Date();
   setLiveStatus(`Updated ${now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })}`, "active");
 }
@@ -202,6 +302,56 @@ function diffTranscript(previous, next) {
     return next.slice(previous.length).trim();
   }
   return next;
+}
+
+function computeEnergyPercent(samples) {
+  if (!samples || samples.length === 0) {
+    return 0;
+  }
+  let sumSquares = 0;
+  for (let i = 0; i < samples.length; i += 1) {
+    const value = samples[i];
+    sumSquares += value * value;
+  }
+  const rms = Math.sqrt(sumSquares / samples.length);
+  const normalized = Math.min(1, rms / 0.35);
+  const instrumentBoost = state.instrumentMode === "instrument" ? 1.2 : 1;
+  return Math.min(100, normalized * 100 * instrumentBoost);
+}
+
+function addTrendPoint(value) {
+  state.trendHistory.push(value);
+  state.trendHistory = state.trendHistory.slice(-60);
+  if (!liveTrendCanvas) {
+    return;
+  }
+  const width = liveTrendCanvas.clientWidth || 320;
+  const height = liveTrendCanvas.clientHeight || 80;
+  const ratio = window.devicePixelRatio || 1;
+  liveTrendCanvas.width = width * ratio;
+  liveTrendCanvas.height = height * ratio;
+  const context = liveTrendCanvas.getContext("2d");
+  if (!context) {
+    return;
+  }
+  context.save();
+  context.scale(ratio, ratio);
+  context.clearRect(0, 0, width, height);
+  context.lineWidth = 2;
+  context.strokeStyle = "rgba(37, 99, 235, 0.9)";
+  context.beginPath();
+  const values = state.trendHistory;
+  for (let i = 0; i < values.length; i += 1) {
+    const x = (i / Math.max(1, values.length - 1)) * width;
+    const y = height - ((values[i] + 1) / 2) * height;
+    if (i === 0) {
+      context.moveTo(x, y);
+    } else {
+      context.lineTo(x, y);
+    }
+  }
+  context.stroke();
+  context.restore();
 }
 
 function extractSamplesFromChunks(startSample, endSample) {
@@ -288,7 +438,19 @@ async function runLiveAnalysis(startSample, endSample) {
   const displayTranscript = liveState.transcriptBuffer.join(" ").replace(/\s+/g, " ").trim() || normalizedText;
   const sentimentInput = addition || normalizedText;
   const sentiment = await scoreSentiment(sentimentInput);
-  updateLiveStreamUI({ transcript: displayTranscript, sentiment });
+  const confidence = sentiment && typeof sentiment.score === "number" ? sentiment.score : null;
+  const energyPercent = computeEnergyPercent(resampled);
+  const trendValue = sentiment ? ((toneFromLabel(sentiment.label) === "positive" ? 1 : toneFromLabel(sentiment.label) === "negative" ? -1 : 0) * (sentiment.score || 0)) : 0;
+  const trendDelta = (() => {
+    const history = state.trendHistory || [];
+    if (history.length === 0) {
+      return 0;
+    }
+    const compareIndex = Math.max(0, history.length - 10);
+    const compareValue = history[compareIndex];
+    return trendValue - compareValue;
+  })();
+  updateLiveStreamUI({ transcript: displayTranscript, sentiment, confidence, energyPercent, trendDelta, trendValue });
   return true;
 }
 
@@ -458,11 +620,13 @@ async function startRecording() {
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         channelCount: 1,
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false,
+        echoCancellation: state.instrumentMode === "instrument" ? false : true,
+        noiseSuppression: state.instrumentMode === "instrument" ? false : true,
+        autoGainControl: state.instrumentMode === "instrument" ? false : true,
       },
     });
+
+    applyInstrumentModeSettings(stream);
 
     if (context.state === "suspended") {
       await context.resume();
@@ -513,6 +677,8 @@ async function startRecording() {
     state.audioFile = null;
     state.audioSourceLabel = "Live recording";
     state.audioSourceType = "recording";
+    state.trendHistory = [];
+    addTrendPoint(0);
 
     if (liveSentimentEl) {
       liveSentimentEl.textContent = "—";
@@ -544,8 +710,8 @@ async function startRecording() {
       fileInput.value = "";
     }
 
-    setStatus("Recording… Speak clearly near your microphone.", "working");
-    setRecordingStatus("Recording… speak clearly near your microphone.", "recording");
+    setStatus("Recording… dial in your tone and play.", "working");
+    setRecordingStatus("Recording… Analyzer listening for riffs.", "recording");
 
     cancelRecordingAnimation();
     state.recordingAnimationFrame = requestAnimationFrame(drawLiveWaveform);
@@ -633,6 +799,8 @@ async function stopRecording(options = {}) {
   state.audioFile = null;
   state.audioSourceLabel = "Live recording";
   state.audioSourceType = "recording";
+  state.trendHistory = [];
+  addTrendPoint(0);
 
   drawWaveform(audioBuffer);
   if (waveformContainer) {
@@ -799,6 +967,28 @@ function toneFromLabel(label) {
     return "neutral";
   }
   return "unknown";
+}
+
+function applyInstrumentModeSettings(stream) {
+  const audioTracks = stream ? stream.getAudioTracks() : [];
+  audioTracks.forEach((track) => {
+    const settings = track.getSettings();
+    const constraints = track.getConstraints ? track.getConstraints() : {};
+    const updates = {};
+    if (state.instrumentMode === "instrument") {
+      if (settings.noiseSuppression || constraints.noiseSuppression !== false) {
+        updates.noiseSuppression = false;
+      }
+      if (settings.autoGainControl || constraints.autoGainControl !== false) {
+        updates.autoGainControl = false;
+      }
+    }
+    if (Object.keys(updates).length > 0 && track.applyConstraints) {
+      track.applyConstraints(updates).catch((error) => {
+        console.warn("Track constraints update failed", error);
+      });
+    }
+  });
 }
 
 function buildResultCard(payload) {
@@ -1132,6 +1322,17 @@ if (recordAnalyzeButton) {
     });
   });
 }
+
+if (instrumentModeSelect) {
+  setInstrumentMode(instrumentModeSelect.value || "voice");
+  instrumentModeSelect.addEventListener("change", (event) => {
+    setInstrumentMode(event.target.value);
+  });
+} else {
+  setInstrumentMode("voice");
+}
+
+fetchCiStatus();
 
 setRecordingStatus("Idle. Microphone access stays local to this tab.");
 clearWaveform();

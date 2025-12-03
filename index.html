@@ -13,7 +13,7 @@
         <div class="brand">
           <h1 class="brand__title">Audio Sentiment Bot</h1>
           <p class="brand__subtitle">
-            Transcribe live audio streams or uploaded clips with realtime sentiment visualization—no servers, no uploads.
+            Plug in an electric guitar (or any line-level source) and watch riffs instantly translate into transcripts, tone, and visuals—no servers, no uploads.
           </p>
         </div>
       </div>
@@ -26,7 +26,7 @@
             <div>
               <h2 class="panel__title" id="upload-heading">Analyze a clip</h2>
               <p class="panel__copy">
-                Stream sentiment while you speak or drop a file up to about ninety seconds. All processing stays in this browser using WebAssembly models.
+                Plug and play: connect your instrument or mic, stream sentiment in realtime, or drop a clip up to ninety seconds. Everything runs locally in this tab via WebAssembly.
               </p>
             </div>
 
@@ -45,13 +45,22 @@
                 <p class="field-hint">Supports WAV, MP3, M4A, AAC, and other common formats.</p>
               </div>
 
+              <div class="field-group">
+                <label class="field-label" for="instrument-mode">Input mode</label>
+                <select class="input-control" id="instrument-mode" data-instrument-mode>
+                  <option value="voice" selected>Voice / acoustic mic</option>
+                  <option value="instrument">Electric guitar / line-in</option>
+                </select>
+                <p class="field-hint" data-instrument-status>Instrument mode trims hum, boosts sustain, and keeps latency low for riffs.</p>
+              </div>
+
               <button class="button" type="submit" data-submit>Analyze audio</button>
             </form>
 
             <div class="recording-card" data-recording-card>
               <div>
                 <h3 class="recording-card__title" id="recording-heading">Capture live audio</h3>
-                <p class="recording-card__copy">Start streaming sentiment in realtime, then optionally keep the clip for a full transcription review.</p>
+                <p class="recording-card__copy">Start riffing and watch the analyzer respond like a pedal—live sentiment, transcript snippets, and visual gauges update every few seconds.</p>
               </div>
               <div class="recording-controls">
                 <button class="button" type="button" data-record-start aria-describedby="recording-heading">Start recording</button>
@@ -61,12 +70,29 @@
               <button class="button button--ghost" type="button" data-record-analyze disabled>Analyze latest recording</button>
             </div>
 
+            <div class="instrument-quickstart">
+              <div>
+                <h3 class="instrument-quickstart__title">Guitarist quick start</h3>
+                <p class="instrument-quickstart__copy">USB interface + Hi-Z input works best. The analyzer listens for dynamics, sustain, and tonal sentiment automatically.</p>
+              </div>
+              <ul class="instrument-quickstart__steps">
+                <li>Connect your interface, choose <strong>Electric guitar / line-in</strong>, then tap <strong>Start recording</strong>.</li>
+                <li>Play a riff—live sentiment, confidence, and trend sparkline react within ~3 seconds.</li>
+                <li>Stop whenever and run a full analysis to keep the take in history.</li>
+              </ul>
+            </div>
+
             <div class="live-card" data-live-card hidden aria-labelledby="live-heading">
               <div class="live-card__header">
                 <h3 class="live-card__title" id="live-heading">Live sentiment</h3>
                 <span class="live-card__status" data-live-status data-state="idle">Waiting for audio…</span>
               </div>
               <p class="live-card__sentiment" data-live-sentiment data-tone="unknown">—</p>
+              <div class="live-insights">
+                <p class="insight-chip" data-live-energy>Energy — 0%</p>
+                <p class="insight-chip" data-live-confidence>Confidence — —</p>
+                <p class="insight-chip" data-live-trend-label>Trend — waiting</p>
+              </div>
               <div class="live-meter" role="img" aria-label="Sentiment gauge">
                 <div class="live-meter__track">
                   <div class="live-meter__needle" data-live-meter-needle data-tone="neutral" style="left: 50%"></div>
@@ -78,6 +104,16 @@
                 </div>
               </div>
               <p class="live-card__transcript" data-live-transcript>Transcript snippets appear here as you speak.</p>
+              <canvas
+                class="trend-canvas"
+                data-live-trend
+                role="img"
+                aria-label="Sentiment sparkline over time"
+              ></canvas>
+              <div class="ci-status" aria-live="polite">
+                <span class="ci-status__label">CI/CD</span>
+                <span class="ci-status__value" data-ci-status data-state="unknown">Checking latest Pages + smoke tests…</span>
+              </div>
             </div>
 
             <p class="status-banner" data-status role="status" aria-live="polite">Models load on first run.</p>
@@ -120,7 +156,7 @@
 
     <footer class="site-footer">
       <div class="site-footer__inner">
-        Tip: Add this folder to GitHub Pages and everything just works—no backend required.
+        Github Pages deploys directly from <code>docs/</code>. CI runs Playwright smoke tests on every push so this view always matches production.
       </div>
     </footer>
   </div>
