@@ -1,497 +1,476 @@
-"use strict";
+import { pipeline, env } from "https://cdn.jsdelivr.net/npm/@xenova/transformers@2.8.0/dist/transformers.min.js";
 
-(function () {
-  const STORAGE_KEY = "audio-sentiment-bot/api-base";
-  const DEFAULT_BASE = "http://localhost:6142";
+const TARGET_SAMPLE_RATE = 16000;
+const MAX_DURATION_SECONDS = 90;
+const DEFAULT_STATUS = "Models load on first run.";
+const defaultWaveformMessage = "Waveform preview appears after selecting an audio file.";
 
-  const form = document.querySelector("[data-form]");
-  if (!form) {
+const form = document.querySelector("[data-form]");
+const fileInput = form ? form.querySelector('[data-input="audio"]') : null;
+const submitButton = form ? form.querySelector('[data-submit]') : null;
+const statusEl = document.querySelector('[data-status]');
+const resultsEl = document.querySelector('[data-results]');
+const emptyStateEl = document.querySelector('[data-empty-state]');
+const waveformCanvas = document.querySelector('[data-waveform]');
+const waveformContainer = document.querySelector('[data-waveform-container]');
+const waveformEmpty = document.querySelector('[data-waveform-empty]');
+const waveformMeta = document.querySelector('[data-waveform-meta]');
+const waveformClearButton = document.querySelector('[data-waveform-clear]');
+
+const state = {
+  audioBuffer: null,
+  audioFile: null,
+  pipelinesPromise: null,
+  audioContext: null,
+};
+
+env.allowRemoteModels = true;
+env.useBrowserCache = true;
+if (navigator.hardwareConcurrency && navigator.hardwareConcurrency > 4) {
+  env.backends.onnx.wasm.numThreads = Math.min(4, Math.ceil(navigator.hardwareConcurrency / 2));
+}
+
+function setStatus(message, tone) {
+  if (!statusEl) {
     return;
   }
+  statusEl.textContent = message;
+  statusEl.dataset.state = tone || "ready";
+}
 
-  const fileInput = form.querySelector('[data-input="audio"]');
-  const languageSelect = form.querySelector('[data-input="language"]');
-  const submitButton = form.querySelector('[data-submit]');
-  const statusEl = document.querySelector('[data-status]');
-  const resultsEl = document.querySelector('[data-results]');
-  const emptyStateEl = document.querySelector('[data-empty-state]');
-  const apiBaseInput = form.querySelector('[data-input="api-base"]');
-  const saveEndpointButton = form.querySelector('[data-action="save-endpoint"]');
-  const resetEndpointButton = form.querySelector('[data-action="reset-endpoint"]');
-  const endpointDisplay = form.querySelector('[data-endpoint-display]');
-  const waveformCanvas = document.querySelector('[data-waveform]');
-  const waveformContainer = document.querySelector('[data-waveform-container]');
-  const waveformEmpty = document.querySelector('[data-waveform-empty]');
-  const waveformMeta = document.querySelector('[data-waveform-meta]');
-  const waveformClearButton = document.querySelector('[data-waveform-clear]');
+function toggleLoading(isLoading) {
+  if (submitButton) {
+    submitButton.disabled = Boolean(isLoading);
+  }
+  if (form) {
+    form.classList.toggle("is-uploading", Boolean(isLoading));
+  }
+}
 
-  if (!fileInput) {
+function ensureEmptyState() {
+  if (!emptyStateEl) {
     return;
   }
+  const hasResults = resultsEl && resultsEl.childElementCount > 0;
+  emptyStateEl.hidden = Boolean(hasResults);
+}
 
-  const defaultWaveformMessage = "Waveform preview appears after selecting an audio file.";
-  let audioContext = null;
+function getAudioContext() {
+  if (state.audioContext) {
+    return state.audioContext;
+  }
+  const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextConstructor) {
+    return null;
+  }
+  state.audioContext = new AudioContextConstructor();
+  return state.audioContext;
+}
 
-  const getAudioContext = () => {
-    if (audioContext) {
-      return audioContext;
-    }
-    const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
-    if (!AudioContextConstructor) {
-      return null;
-    }
-    audioContext = new AudioContextConstructor();
-    return audioContext;
-  };
-
-  const clearWaveform = (message) => {
-    if (!waveformCanvas) {
-      return;
-    }
+function clearWaveform(message) {
+  if (waveformCanvas) {
     const context = waveformCanvas.getContext("2d");
     if (context) {
       context.clearRect(0, 0, waveformCanvas.width, waveformCanvas.height);
     }
-    if (waveformContainer) {
-      waveformContainer.hidden = true;
+  }
+  if (waveformContainer) {
+    waveformContainer.hidden = true;
+  }
+  if (waveformMeta) {
+    waveformMeta.textContent = "";
+  }
+  if (waveformEmpty) {
+    waveformEmpty.hidden = false;
+    waveformEmpty.textContent = message || defaultWaveformMessage;
+  }
+}
+
+function drawWaveform(audioBuffer) {
+  if (!waveformCanvas || !audioBuffer) {
+    return;
+  }
+  const parentWidth = waveformCanvas.parentElement ? waveformCanvas.parentElement.clientWidth : 0;
+  const width = waveformCanvas.clientWidth || parentWidth || 640;
+  const height = waveformCanvas.clientHeight || 160;
+  const ratio = window.devicePixelRatio || 1;
+
+  waveformCanvas.width = width * ratio;
+  waveformCanvas.height = height * ratio;
+
+  const context = waveformCanvas.getContext("2d");
+  if (!context) {
+    return;
+  }
+
+  context.save();
+  context.scale(ratio, ratio);
+  context.clearRect(0, 0, width, height);
+
+  const channelData = audioBuffer.getChannelData(0);
+  const samples = width;
+  const blockSize = Math.max(1, Math.floor(channelData.length / samples));
+  const midY = height / 2;
+
+  context.lineWidth = 1.2;
+  context.strokeStyle = "rgba(37, 99, 235, 0.9)";
+  context.beginPath();
+  context.moveTo(0, midY);
+
+  for (let i = 0; i < samples; i += 1) {
+    let min = 1.0;
+    let max = -1.0;
+    const start = i * blockSize;
+    for (let j = 0; j < blockSize; j += 1) {
+      const datum = channelData[start + j];
+      if (datum === undefined) {
+        break;
+      }
+      if (datum < min) {
+        min = datum;
+      }
+      if (datum > max) {
+        max = datum;
+      }
     }
-    if (waveformMeta) {
-      waveformMeta.textContent = "";
+    context.lineTo(i, midY + max * midY);
+    context.lineTo(i, midY + min * midY);
+  }
+
+  context.lineTo(samples, midY);
+  context.stroke();
+  context.restore();
+}
+
+async function decodeFile(file) {
+  const context = getAudioContext();
+  if (!context) {
+    throw new Error("Web Audio API not available in this browser.");
+  }
+
+  if (context.state === "suspended") {
+    await context.resume();
+  }
+
+  const arrayBuffer = await file.arrayBuffer();
+
+  if (context.decodeAudioData.length === 1) {
+    return context.decodeAudioData(arrayBuffer.slice(0));
+  }
+
+  return new Promise((resolve, reject) => {
+    context.decodeAudioData(arrayBuffer.slice(0), resolve, reject);
+  });
+}
+
+function mixToMono(buffer) {
+  if (buffer.numberOfChannels === 1) {
+    return buffer.getChannelData(0);
+  }
+  const length = buffer.length;
+  const output = new Float32Array(length);
+  for (let channel = 0; channel < buffer.numberOfChannels; channel += 1) {
+    const channelData = buffer.getChannelData(channel);
+    for (let i = 0; i < length; i += 1) {
+      output[i] += channelData[i];
+    }
+  }
+  for (let i = 0; i < length; i += 1) {
+    output[i] /= buffer.numberOfChannels;
+  }
+  return output;
+}
+
+function resample(array, originalRate, targetRate) {
+  if (originalRate === targetRate) {
+    return new Float32Array(array);
+  }
+
+  const ratio = originalRate / targetRate;
+  const newLength = Math.round(array.length / ratio);
+  const result = new Float32Array(newLength);
+
+  let offsetResult = 0;
+  let offsetBuffer = 0;
+  while (offsetResult < newLength) {
+    const nextOffset = (offsetResult + 1) * ratio;
+    const start = Math.floor(offsetBuffer);
+    const end = Math.min(Math.floor(nextOffset), array.length);
+    let sum = 0;
+    let count = 0;
+    for (let i = start; i < end; i += 1) {
+      sum += array[i];
+      count += 1;
+    }
+    result[offsetResult] = count > 0 ? sum / count : 0;
+    offsetResult += 1;
+    offsetBuffer = nextOffset;
+  }
+
+  return result;
+}
+
+function toneFromLabel(label) {
+  const normalized = (label || "").toUpperCase();
+  if (normalized.includes("POSITIVE") || normalized === "LABEL_1") {
+    return "positive";
+  }
+  if (normalized.includes("NEGATIVE") || normalized === "LABEL_0") {
+    return "negative";
+  }
+  if (normalized.includes("NEUTRAL")) {
+    return "neutral";
+  }
+  return "unknown";
+}
+
+function buildResultCard(payload) {
+  const sentiment = payload.sentiment || null;
+  const label = sentiment && sentiment.label ? sentiment.label : "UNKNOWN";
+  const tone = toneFromLabel(label);
+  const score = sentiment && typeof sentiment.score === "number" ? sentiment.score : null;
+  const transcript = typeof payload.transcript === "string" ? payload.transcript : "";
+  const note = payload.error || "";
+  const fileName = payload.fileName || "Audio clip";
+
+  const article = document.createElement("article");
+  article.className = "result-card";
+  article.dataset.tone = tone;
+  article.tabIndex = -1;
+
+  const header = document.createElement("div");
+  header.className = "result-card__header";
+
+  const title = document.createElement("h3");
+  title.className = "result-card__title";
+  title.textContent = tone === "unknown" ? "No sentiment detected" : tone.toUpperCase();
+  header.appendChild(title);
+
+  const badge = document.createElement("span");
+  badge.className = "badge";
+  badge.dataset.tone = tone;
+  badge.textContent = score != null ? `${label.toUpperCase()} | ${score.toFixed(2)}` : label.toUpperCase();
+  header.appendChild(badge);
+
+  article.appendChild(header);
+
+  const meta = document.createElement("p");
+  meta.className = "result-card__meta";
+  const now = new Date();
+  meta.textContent = `${fileName} | ${now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+  article.appendChild(meta);
+
+  const transcriptBlock = document.createElement("p");
+  transcriptBlock.className = "result-card__transcript";
+  transcriptBlock.textContent = transcript || "No speech detected.";
+  article.appendChild(transcriptBlock);
+
+  if (note && tone === "unknown") {
+    const noteBlock = document.createElement("p");
+    noteBlock.className = "result-card__note";
+    noteBlock.textContent = note;
+    article.appendChild(noteBlock);
+  }
+
+  requestAnimationFrame(() => {
+    try {
+      article.focus();
+    } catch (err) {
+      console.warn("Result focus failed", err);
+    }
+    article.addEventListener("blur", () => {
+      article.removeAttribute("tabindex");
+    }, { once: true });
+  });
+
+  return article;
+}
+
+async function ensurePipelines() {
+  if (!state.pipelinesPromise) {
+    state.pipelinesPromise = (async () => {
+      setStatus("Loading speech model (first run may take a minute)...", "working");
+      const speech = await pipeline("automatic-speech-recognition", "Xenova/whisper-tiny.en", {
+        quantized: true,
+      });
+      setStatus("Loading sentiment model...", "working");
+      const sentiment = await pipeline("text-classification", "Xenova/distilbert-base-uncased-finetuned-sst-2-english", {
+        quantized: true,
+      });
+      setStatus("Models ready. Select an audio file.");
+      return { speech, sentiment };
+    })().catch((error) => {
+      state.pipelinesPromise = null;
+      throw error;
+    });
+  }
+  return state.pipelinesPromise;
+}
+
+async function transcribeAudio(audioBuffer) {
+  const monoData = mixToMono(audioBuffer);
+  const resampled = resample(monoData, audioBuffer.sampleRate, TARGET_SAMPLE_RATE);
+  const { speech } = await ensurePipelines();
+  const result = await speech({
+    array: resampled,
+    sampling_rate: TARGET_SAMPLE_RATE,
+  }, {
+    chunk_length_s: 30,
+    stride_length_s: 5,
+  });
+  const text = typeof result.text === "string" ? result.text.trim() : "";
+  return text;
+}
+
+async function scoreSentiment(transcript) {
+  if (!transcript) {
+    return null;
+  }
+  const { sentiment } = await ensurePipelines();
+  const outputs = await sentiment(transcript, { topk: 1 });
+  const best = Array.isArray(outputs) && outputs.length > 0 ? outputs[0] : outputs;
+  if (!best || typeof best !== "object") {
+    return null;
+  }
+  const normalizedLabel = (() => {
+    const raw = typeof best.label === "string" ? best.label : "";
+    if (raw === "LABEL_0") {
+      return "NEGATIVE";
+    }
+    if (raw === "LABEL_1") {
+      return "POSITIVE";
+    }
+    return raw.toUpperCase();
+  })();
+  const score = typeof best.score === "number" ? best.score : null;
+  return score == null ? { label: normalizedLabel } : { label: normalizedLabel, score };
+}
+
+async function analyzeFile(file) {
+  if (!file) {
+    throw new Error("Select an audio file to begin.");
+  }
+
+  const audioBuffer = state.audioBuffer || await decodeFile(file);
+  const duration = audioBuffer.duration;
+  if (Number.isFinite(duration) && duration > MAX_DURATION_SECONDS) {
+    throw new Error("Clip is too long. Trim to under ninety seconds.");
+  }
+
+  const transcript = await transcribeAudio(audioBuffer);
+  if (!transcript) {
+    return {
+      transcript: "",
+      sentiment: null,
+      error: "Could not detect speech in this clip.",
+      fileName: file.name,
+    };
+  }
+
+  const sentiment = await scoreSentiment(transcript);
+  return {
+    transcript,
+    sentiment,
+    fileName: file.name,
+  };
+}
+
+async function handleFileChange(event) {
+  const files = event.target && event.target.files ? event.target.files : null;
+  if (!files || files.length === 0) {
+    state.audioBuffer = null;
+    state.audioFile = null;
+    clearWaveform();
+    setStatus(DEFAULT_STATUS);
+    return;
+  }
+
+  const file = files[0];
+  state.audioFile = file;
+  setStatus("Decoding audio...", "working");
+
+  try {
+    const decoded = await decodeFile(file);
+    state.audioBuffer = decoded;
+    if (waveformContainer) {
+      waveformContainer.hidden = false;
     }
     if (waveformEmpty) {
-      waveformEmpty.hidden = false;
-      waveformEmpty.textContent = message || defaultWaveformMessage;
+      waveformEmpty.hidden = true;
     }
-  };
-
-  const decodeBuffer = (context, arrayBuffer) => {
-    if (!context) {
-      return Promise.reject(new Error("Web Audio API not available."));
+    drawWaveform(decoded);
+    if (waveformMeta) {
+      const duration = decoded.duration;
+      const durationLabel = Number.isFinite(duration) ? `${duration.toFixed(2)}s` : "Unknown duration";
+      const sampleRate = decoded.sampleRate ? `${decoded.sampleRate.toLocaleString()} Hz` : "Unknown sample rate";
+      const sizeKb = file.size ? `${(file.size / 1024).toFixed(1)} KB` : "";
+      const metaParts = [durationLabel, sampleRate, sizeKb].filter(Boolean);
+      waveformMeta.textContent = metaParts.join(" · ");
     }
-    const bufferCopy = arrayBuffer.slice(0);
-    if (context.decodeAudioData.length === 1) {
-      return context.decodeAudioData(bufferCopy);
-    }
-    return new Promise((resolve, reject) => {
-      context.decodeAudioData(bufferCopy, resolve, reject);
-    });
-  };
-
-  const drawWaveform = (audioBuffer) => {
-    if (!waveformCanvas) {
-      return;
-    }
-
-    const parentWidth = waveformCanvas.parentElement ? waveformCanvas.parentElement.clientWidth : 0;
-    const width = waveformCanvas.clientWidth || parentWidth || 640;
-    const height = waveformCanvas.clientHeight || 160;
-    const ratio = window.devicePixelRatio || 1;
-
-    waveformCanvas.width = width * ratio;
-    waveformCanvas.height = height * ratio;
-
-    const context = waveformCanvas.getContext("2d");
-    if (!context) {
-      return;
-    }
-
-    context.save();
-    context.scale(ratio, ratio);
-    context.clearRect(0, 0, width, height);
-
-    const channelData = audioBuffer.getChannelData(0);
-    const samples = width;
-    const blockSize = Math.max(1, Math.floor(channelData.length / samples));
-    const midY = height / 2;
-
-    context.lineWidth = 1.2;
-    context.strokeStyle = "rgba(37, 99, 235, 0.9)";
-    context.beginPath();
-    context.moveTo(0, midY);
-
-    for (let i = 0; i < samples; i += 1) {
-      let min = 1.0;
-      let max = -1.0;
-      const start = i * blockSize;
-      for (let j = 0; j < blockSize; j += 1) {
-        const datum = channelData[start + j];
-        if (datum === undefined) {
-          break;
-        }
-        if (datum < min) {
-          min = datum;
-        }
-        if (datum > max) {
-          max = datum;
-        }
-      }
-      context.lineTo(i, midY + max * midY);
-      context.lineTo(i, midY + min * midY);
-    }
-
-    context.lineTo(samples, midY);
-    context.stroke();
-    context.restore();
-  };
-
-  const renderWaveform = async (file) => {
-    if (!waveformCanvas || !file) {
-      return;
-    }
-
-    const context = getAudioContext();
-    if (!context) {
-      clearWaveform("Waveform preview not supported in this browser.");
-      return;
-    }
-
-    try {
-      if (context.state === "suspended") {
-        await context.resume();
-      }
-
-      const buffer = await file.arrayBuffer();
-
-      if (waveformContainer) {
-        waveformContainer.hidden = false;
-      }
-      if (waveformEmpty) {
-        waveformEmpty.hidden = true;
-      }
-
-      const audioBuffer = await decodeBuffer(context, buffer);
-
-      drawWaveform(audioBuffer);
-      if (waveformMeta) {
-        const duration = audioBuffer.duration;
-        const durationLabel = Number.isFinite(duration)
-          ? `${duration.toFixed(2)}s`
-          : "Unknown duration";
-        const sampleRate = audioBuffer.sampleRate
-          ? `${audioBuffer.sampleRate.toLocaleString()} Hz`
-          : "Unknown sample rate";
-        const sizeKb = file.size ? `${(file.size / 1024).toFixed(1)} KB` : "";
-        const metaParts = [durationLabel, sampleRate, sizeKb].filter(Boolean);
-        waveformMeta.textContent = metaParts.join(" · ");
-      }
-    } catch (error) {
-      console.error("Waveform preview failed", error);
-      clearWaveform("Could not render waveform preview for this file.");
-    }
-  };
-
-  clearWaveform();
-  const readStorage = (key) => {
-    try {
-      return window.localStorage.getItem(key);
-    } catch (_err) {
-      return null;
-    }
-  };
-
-  const writeStorage = (key, value) => {
-    try {
-      if (value == null) {
-        window.localStorage.removeItem(key);
-      } else {
-        window.localStorage.setItem(key, value);
-      }
-    } catch (_err) {
-      /* localStorage might be unavailable (private mode) */
-    }
-  };
-
-  const sanitizeBase = (rawValue) => {
-    const trimmed = (rawValue || "").trim();
-    if (!trimmed) {
-      return DEFAULT_BASE;
-    }
-    let parsed;
-    try {
-      parsed = new URL(trimmed);
-    } catch (err) {
-      throw new Error("Enter a valid API base URL, including http(s)://");
-    }
-    const normalized = parsed.origin + parsed.pathname.replace(/\/$/, "");
-    return normalized || DEFAULT_BASE;
-  };
-
-  let apiBase = DEFAULT_BASE;
-  try {
-    const stored = readStorage(STORAGE_KEY);
-    apiBase = sanitizeBase(stored);
-  } catch (err) {
-    apiBase = DEFAULT_BASE;
+    setStatus("Ready. Click Analyze audio to continue.");
+  } catch (error) {
+    console.error("Waveform decoding failed", error);
+    state.audioBuffer = null;
+    clearWaveform("Could not decode waveform for this file.");
+    setStatus(error instanceof Error ? error.message : "Could not decode file.", "error");
   }
+}
 
-  const apiEndpoint = () => {
-    const candidate = apiBase.endsWith("/") ? apiBase : apiBase + "/";
-    try {
-      return new URL("analyze", candidate).toString();
-    } catch (_err) {
-      return candidate + "analyze";
-    }
-  };
-
-  const updateEndpointDisplay = () => {
-    const message = "Current API endpoint: " + apiEndpoint();
-    if (endpointDisplay) {
-      endpointDisplay.textContent = message;
-    }
-    if (apiBaseInput) {
-      apiBaseInput.value = apiBase;
-    }
-  };
-
-  const setStatus = (message, state) => {
-    const tone = state || "ready";
-    if (statusEl) {
-      statusEl.textContent = message;
-      statusEl.dataset.state = tone;
-    }
-  };
-
-  const toggleLoading = (isLoading) => {
-    if (submitButton) {
-      submitButton.disabled = Boolean(isLoading);
-    }
-    form.classList.toggle("is-uploading", Boolean(isLoading));
-  };
-
-  const ensureEmptyState = () => {
-    if (!emptyStateEl) {
-      return;
-    }
-    const hasResults = resultsEl && resultsEl.childElementCount > 0;
-    emptyStateEl.hidden = Boolean(hasResults);
-  };
-
-  const formatScore = (value) => {
-    if (typeof value !== "number" || Number.isNaN(value)) {
-      return "--";
-    }
-    return value.toFixed(2);
-  };
-
-  const toneFromLabel = (label) => {
-    switch (label) {
-      case "POSITIVE":
-        return "positive";
-      case "NEGATIVE":
-        return "negative";
-      case "NEUTRAL":
-        return "neutral";
-      default:
-        return "unknown";
-    }
-  };
-
-  const buildResultCard = (payload) => {
-    const sentiment = payload && payload.sentiment ? payload.sentiment : null;
-    const label = sentiment && sentiment.label ? sentiment.label : "UNKNOWN";
-    const score = sentiment && sentiment.score != null ? sentiment.score : null;
-    const transcript = payload && typeof payload.transcript === "string" ? payload.transcript : "";
-    const language = payload && payload.language ? payload.language : "en-US";
-    const note = payload && payload.error ? payload.error : "";
-    const fileName = payload && payload.fileName ? payload.fileName : "Audio clip";
-    const tone = toneFromLabel(label);
-
-    const article = document.createElement("article");
-    article.className = "result-card";
-    article.dataset.tone = tone;
-    article.tabIndex = -1;
-
-    const header = document.createElement("div");
-    header.className = "result-card__header";
-
-    const title = document.createElement("h3");
-    title.className = "result-card__title";
-    title.textContent = label === "UNKNOWN" ? "No sentiment detected" : label;
-    header.appendChild(title);
-
-    const badge = document.createElement("span");
-    badge.className = "badge";
-    badge.dataset.tone = tone;
-    badge.textContent = label === "UNKNOWN" ? "--" : label + " | " + formatScore(score);
-    header.appendChild(badge);
-
-    article.appendChild(header);
-
-    const meta = document.createElement("p");
-    meta.className = "result-card__meta";
-    const now = new Date();
-    const formattedTime = now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-    meta.textContent = fileName + " | " + language + " | " + formattedTime;
-    article.appendChild(meta);
-
-    const transcriptBlock = document.createElement("p");
-    transcriptBlock.className = "result-card__transcript";
-    transcriptBlock.textContent = transcript ? transcript : "No speech detected.";
-    article.appendChild(transcriptBlock);
-
-    if (note && tone === "unknown") {
-      const noteBlock = document.createElement("p");
-      noteBlock.className = "result-card__note";
-      noteBlock.textContent = note;
-      article.appendChild(noteBlock);
-    }
-
-    requestAnimationFrame(() => {
-      try {
-        article.focus();
-      } catch (_focusError) {
-        /* ignore focus failures */
-      }
-      article.addEventListener(
-        "blur",
-        () => {
-          article.removeAttribute("tabindex");
-        },
-        { once: true }
-      );
-    });
-
-    return article;
-  };
-
-  const resetFileInput = () => {
-    const preservedLanguage = languageSelect ? languageSelect.value : "en-US";
-    form.reset();
-    if (languageSelect) {
-      languageSelect.value = preservedLanguage;
-    }
-  };
-
-  const handleError = (err) => {
-    if (err instanceof Error) {
-      setStatus(err.message, "error");
-      return;
-    }
-    setStatus("Request failed.", "error");
-  };
-
-  const persistEndpoint = (value) => {
-    apiBase = value;
-    if (value === DEFAULT_BASE) {
-      writeStorage(STORAGE_KEY, null);
-    } else {
-      writeStorage(STORAGE_KEY, value);
-    }
-    updateEndpointDisplay();
-  };
-
-  fileInput.addEventListener("change", (event) => {
-    const files = event.target.files;
-    if (!files || files.length === 0) {
-      clearWaveform();
-      return;
-    }
-    const selectedFile = files[0];
-    renderWaveform(selectedFile);
-  });
-
-  if (waveformClearButton) {
-    waveformClearButton.addEventListener("click", () => {
-      clearWaveform();
-      if (fileInput) {
-        fileInput.value = "";
-      }
-    });
-  }
-
-  if (saveEndpointButton) {
-    saveEndpointButton.addEventListener("click", () => {
-      try {
-        const nextBase = sanitizeBase(apiBaseInput ? apiBaseInput.value : "");
-        persistEndpoint(nextBase);
-        setStatus("Saved API endpoint.", "ready");
-      } catch (err) {
-        handleError(err);
-      }
-    });
-  }
-
-  if (resetEndpointButton) {
-    resetEndpointButton.addEventListener("click", () => {
-      persistEndpoint(DEFAULT_BASE);
-      setStatus("Reset to default endpoint.", "ready");
-    });
-  }
-
-  if (apiBaseInput) {
-    apiBaseInput.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        if (saveEndpointButton) {
-          saveEndpointButton.click();
-        }
-      }
-    });
-  }
-
-  form.addEventListener("submit", async (event) => {
-    event.preventDefault();
-
-    if (!fileInput.files || fileInput.files.length === 0) {
-      setStatus("Select an audio file to begin.", "error");
+async function handleSubmit(event) {
+  event.preventDefault();
+  if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+    setStatus("Select an audio file to begin.", "error");
+    if (fileInput) {
       fileInput.focus();
-      return;
     }
+    return;
+  }
 
-    const audioFile = fileInput.files[0];
-    const language = (languageSelect && languageSelect.value) || "en-US";
+  const audioFile = fileInput.files[0];
+  toggleLoading(true);
+  setStatus("Analyzing audio...", "working");
 
-    const formData = new FormData();
-    formData.append("audio", audioFile);
-    formData.append("language", language);
-
-    setStatus("Analyzing audio...", "working");
-    toggleLoading(true);
-
-    const endpoint = apiEndpoint();
-
-    try {
-      const response = await fetch(endpoint, {
-        method: "POST",
-        body: formData,
-      });
-
-      let payload = {};
-      try {
-        payload = await response.json();
-      } catch (_jsonError) {
-        throw new Error("Unexpected server response.");
-      }
-
-      if (!response.ok) {
-        throw new Error(payload && payload.error ? payload.error : "Request failed.");
-      }
-
-      payload.fileName = audioFile.name;
-
-      if (resultsEl) {
-        const resultCard = buildResultCard(payload);
-        resultsEl.prepend(resultCard);
-      }
-      ensureEmptyState();
-
-      if (payload.error && !payload.sentiment) {
-        setStatus(payload.error, "warn");
-      } else {
-        setStatus("Analysis complete.", "ready");
-      }
-    } catch (err) {
-      if (err instanceof TypeError) {
-        handleError(new Error("Could not reach API endpoint. Check CORS and network settings."));
-      } else {
-        handleError(err);
-      }
-    } finally {
-      toggleLoading(false);
-      resetFileInput();
+  try {
+    const result = await analyzeFile(audioFile);
+    if (resultsEl) {
+      const card = buildResultCard(result);
+      resultsEl.prepend(card);
     }
-  });
+    ensureEmptyState();
 
-  updateEndpointDisplay();
-  ensureEmptyState();
-})();
+    if (result.error && !result.sentiment) {
+      setStatus(result.error, "warn");
+    } else {
+      setStatus("Analysis complete.");
+    }
+  } catch (error) {
+    console.error("Analysis failed", error);
+    const message = error instanceof Error ? error.message : "Analysis failed.";
+    setStatus(message, "error");
+  } finally {
+    toggleLoading(false);
+  }
+}
+
+function resetInputs() {
+  if (fileInput) {
+    fileInput.value = "";
+  }
+  state.audioBuffer = null;
+  state.audioFile = null;
+  clearWaveform();
+  setStatus(DEFAULT_STATUS);
+}
+
+if (form && fileInput) {
+  setStatus(DEFAULT_STATUS);
+  form.addEventListener("submit", handleSubmit);
+  fileInput.addEventListener("change", handleFileChange);
+}
+
+if (waveformClearButton) {
+  waveformClearButton.addEventListener("click", resetInputs);
+}
+
+clearWaveform();
+ensureEmptyState();

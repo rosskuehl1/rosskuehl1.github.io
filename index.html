@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <title>Audio Sentiment Bot</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="stylesheet" href="./assets/styles.css">
+  <link rel="stylesheet" href="assets/styles.css">
 </head>
 <body>
   <div class="app-shell">
@@ -13,7 +13,7 @@
         <div class="brand">
           <h1 class="brand__title">Audio Sentiment Bot</h1>
           <p class="brand__subtitle">
-            Upload a short audio clip to transcribe speech with Google Web Speech and score the sentiment instantly.
+            Transcribe short audio clips and score the transcript locally in your browser. No servers. No uploads.
           </p>
         </div>
       </div>
@@ -26,11 +26,11 @@
             <div>
               <h2 class="panel__title" id="upload-heading">Analyze a clip</h2>
               <p class="panel__copy">
-                Choose an audio file up to about one minute and pick a language. Results stay on this device.
+                We support English speech up to about ninety seconds. All processing happens on this device using WebAssembly models.
               </p>
             </div>
 
-            <form class="form-grid" data-form enctype="multipart/form-data" novalidate>
+            <form class="form-grid" data-form novalidate>
               <div class="field-group">
                 <label class="field-label" for="audio-input">Audio file</label>
                 <input
@@ -42,43 +42,13 @@
                   required
                   data-input="audio"
                 >
-                <p class="field-hint">Supports WAV, MP3, M4A, and other common formats.</p>
-              </div>
-
-              <div class="field-group">
-                <label class="field-label" for="language-select">Transcription language</label>
-                <select class="input-control" id="language-select" name="language" data-input="language">
-                  <option value="en-US" selected>English (United States)</option>
-                  <option value="en-GB">English (United Kingdom)</option>
-                  <option value="es-ES">Spanish (Spain)</option>
-                  <option value="fr-FR">French (France)</option>
-                  <option value="de-DE">German</option>
-                </select>
-              </div>
-
-              <div class="field-group">
-                <label class="field-label" for="api-base-input">API endpoint</label>
-                <div class="endpoint-controls">
-                  <input
-                    class="input-control endpoint-input"
-                    id="api-base-input"
-                    type="url"
-                    name="api-base"
-                    placeholder="http://localhost:6142"
-                    data-input="api-base"
-                    autocomplete="url"
-                  >
-                  <button class="button button--ghost" type="button" data-action="save-endpoint">Save</button>
-                  <button class="button button--ghost" type="button" data-action="reset-endpoint">Reset</button>
-                </div>
-                <p class="field-hint">Defaults to your local Flask server. Update when using a hosted API.</p>
-                <p class="endpoint-banner" data-endpoint-display></p>
+                <p class="field-hint">Supports WAV, MP3, M4A, AAC, and other common formats.</p>
               </div>
 
               <button class="button" type="submit" data-submit>Analyze audio</button>
             </form>
 
-            <p class="status-banner" data-status role="status" aria-live="polite">Ready.</p>
+            <p class="status-banner" data-status role="status" aria-live="polite">Models load on first run.</p>
 
             <div class="waveform-card" data-waveform-container hidden>
               <div class="waveform-card__header">
@@ -88,7 +58,7 @@
                 </button>
               </div>
               <p class="waveform-card__copy">
-                Live visualization of your audio file. We never upload this preview.
+                Visualization renders locally. Nothing leaves the browser.
               </p>
               <canvas
                 class="waveform-canvas"
@@ -106,7 +76,7 @@
           <section class="panel" aria-labelledby="history-heading">
             <div class="history-header">
               <h2 class="history-header__title" id="history-heading">Analysis history</h2>
-              <p class="history-header__copy">Each result lists the language, timestamp, and transcript.</p>
+              <p class="history-header__copy">Each result lists the timestamp, transcript, and sentiment score.</p>
             </div>
 
             <div class="history-list" data-results aria-live="polite"></div>
@@ -118,15 +88,11 @@
 
     <footer class="site-footer">
       <div class="site-footer__inner">
-        Tip: Need live capture? Use the command line streamer or desktop overlay included in the core project.
+        Tip: Add this folder to GitHub Pages and everything just works—no backend required.
       </div>
     </footer>
   </div>
 
-  <noscript>
-    <div class="noscript">JavaScript is required to upload audio clips and display results.</div>
-  </noscript>
-
-  <script src="./assets/app.js" defer></script>
+  <script type="module" src="assets/app.js"></script>
 </body>
 </html>
