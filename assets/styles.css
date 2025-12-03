@@ -124,6 +124,165 @@ body {
   gap: 16px;
 }
 
+.recording-card {
+  margin-top: 12px;
+  padding: 18px 20px;
+  border-radius: var(--radius-lg);
+  border: 1px dashed rgba(37, 99, 235, 0.35);
+  background: rgba(37, 99, 235, 0.05);
+  display: grid;
+  gap: 12px;
+}
+
+.live-card {
+  margin-top: 12px;
+  padding: 20px 22px;
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(37, 99, 235, 0.25);
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 16px 28px rgba(37, 99, 235, 0.12);
+  display: grid;
+  gap: 14px;
+}
+
+.live-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.live-card__title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.live-card__status {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.live-card__status[data-state="listening"] {
+  color: var(--accent);
+}
+
+.live-card__status[data-state="active"] {
+  color: var(--positive);
+}
+
+.live-card__status[data-state="error"] {
+  color: var(--negative);
+}
+
+.live-card__sentiment {
+  margin: 0;
+  font-size: 1.8rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+}
+
+.live-card__sentiment[data-tone="positive"] {
+  color: var(--positive);
+}
+
+.live-card__sentiment[data-tone="negative"] {
+  color: var(--negative);
+}
+
+.live-card__sentiment[data-tone="neutral"] {
+  color: var(--neutral);
+}
+
+.live-card__transcript {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.live-meter {
+  display: grid;
+  gap: 8px;
+}
+
+.live-meter__track {
+  position: relative;
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(194, 58, 43, 0.2), rgba(99, 102, 241, 0.12), rgba(18, 130, 80, 0.2));
+  overflow: hidden;
+}
+
+.live-meter__needle {
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--muted);
+  box-shadow: 0 0 12px rgba(15, 23, 42, 0.25);
+  transition: left 0.45s ease, background 0.2s ease;
+}
+
+.live-meter__needle[data-tone="positive"] {
+  background: var(--positive);
+}
+
+.live-meter__needle[data-tone="negative"] {
+  background: var(--negative);
+}
+
+.live-meter__needle[data-tone="neutral"] {
+  background: var(--neutral);
+}
+
+.live-meter__legend {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.recording-card__title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.recording-card__copy {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.recording-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.recording-status {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.recording-status[data-state="recording"] {
+  color: var(--accent);
+}
+
+.recording-status[data-state="ready"] {
+  color: var(--positive);
+}
+
+.recording-status[data-state="error"] {
+  color: var(--negative);
+}
+
 .field-group {
   display: grid;
   gap: 8px;
@@ -189,6 +348,15 @@ body {
 .button--ghost:not(:disabled):focus-visible {
   box-shadow: none;
   background: rgba(37, 99, 235, 0.08);
+}
+
+.button--danger {
+  background: var(--negative);
+}
+
+.button--danger:not(:disabled):hover,
+.button--danger:not(:disabled):focus-visible {
+  box-shadow: 0 14px 24px rgba(194, 58, 43, 0.25);
 }
 
 .status-banner {

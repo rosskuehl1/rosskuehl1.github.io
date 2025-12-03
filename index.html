@@ -13,7 +13,7 @@
         <div class="brand">
           <h1 class="brand__title">Audio Sentiment Bot</h1>
           <p class="brand__subtitle">
-            Transcribe short audio clips and score the transcript locally in your browser. No servers. No uploads.
+            Transcribe live audio streams or uploaded clips with realtime sentiment visualization—no servers, no uploads.
           </p>
         </div>
       </div>
@@ -26,7 +26,7 @@
             <div>
               <h2 class="panel__title" id="upload-heading">Analyze a clip</h2>
               <p class="panel__copy">
-                We support English speech up to about ninety seconds. All processing happens on this device using WebAssembly models.
+                Stream sentiment while you speak or drop a file up to about ninety seconds. All processing stays in this browser using WebAssembly models.
               </p>
             </div>
 
@@ -47,6 +47,38 @@
 
               <button class="button" type="submit" data-submit>Analyze audio</button>
             </form>
+
+            <div class="recording-card" data-recording-card>
+              <div>
+                <h3 class="recording-card__title" id="recording-heading">Capture live audio</h3>
+                <p class="recording-card__copy">Start streaming sentiment in realtime, then optionally keep the clip for a full transcription review.</p>
+              </div>
+              <div class="recording-controls">
+                <button class="button" type="button" data-record-start aria-describedby="recording-heading">Start recording</button>
+                <button class="button button--danger" type="button" data-record-stop disabled>Stop</button>
+              </div>
+              <p class="recording-status" data-record-status>Idle. Microphone access stays local to this tab.</p>
+              <button class="button button--ghost" type="button" data-record-analyze disabled>Analyze latest recording</button>
+            </div>
+
+            <div class="live-card" data-live-card hidden aria-labelledby="live-heading">
+              <div class="live-card__header">
+                <h3 class="live-card__title" id="live-heading">Live sentiment</h3>
+                <span class="live-card__status" data-live-status data-state="idle">Waiting for audio…</span>
+              </div>
+              <p class="live-card__sentiment" data-live-sentiment data-tone="unknown">—</p>
+              <div class="live-meter" role="img" aria-label="Sentiment gauge">
+                <div class="live-meter__track">
+                  <div class="live-meter__needle" data-live-meter-needle data-tone="neutral" style="left: 50%"></div>
+                </div>
+                <div class="live-meter__legend">
+                  <span>Negative</span>
+                  <span>Neutral</span>
+                  <span>Positive</span>
+                </div>
+              </div>
+              <p class="live-card__transcript" data-live-transcript>Transcript snippets appear here as you speak.</p>
+            </div>
 
             <p class="status-banner" data-status role="status" aria-live="polite">Models load on first run.</p>
 
@@ -69,7 +101,7 @@
               <p class="waveform-meta" data-waveform-meta></p>
             </div>
             <p class="waveform-empty" data-waveform-empty>
-              Waveform preview appears after selecting an audio file.
+              Waveform preview appears after selecting an audio file or while streaming live audio.
             </p>
           </section>
 
